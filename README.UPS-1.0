@@ -1,0 +1,31 @@
+
+Business::UPSShipping - UPS Shipping Cost Module v1.0
+
+Mark Solomon <msolomon@seva.net> 12/20/1997
+http://www.seva.net/~msolomon/
+
+Feed this module four things (shipping method, from zip, 'to' zip, and
+weight) and it gives you the cost to ship it, and the UPS zone.
+
+This module sends an http request to a CGI at UPS which gives the actual
+information.
+
+It is a very simplified way of finding shipping costs based on the "Quick
+Cost Calculator" document found on the UPS Website at
+http://www.ups.com/tools/tools.html
+
+---------------------------------------------------------
+
+TO INSTALL:
+
+1. Unpack to Dist file:
+	gunzip < UPS-1.0.tar.gz | tar xvf -
+
+2. Change to the dist dir and make the Makefile:
+	cd UPS-1.0
+	perl Makefile.PL
+
+3. Make and Install the package:
+	make
+	make install
+
