@@ -1,48 +1,96 @@
 #!/usr/local/bin/perl
-
-#	Figure UPS shipping
-#	12/20/97 Mark Solomon
-
+#
+#	Figure UPS shipping 1.3
+#	01/07/1998 Mark Solomon
+#
 
 package Business::UPSShipping;
-
+use LWP::Simple;
+use Carp;
 require 5.003;
 
 BEGIN {
 	# set the version for version checking
-        $VERSION     = 1.00;
+        $VERSION     = 1.30;
         # if using RCS/CVS, this may be preferred
         # $VERSION = do { my @r = (q$Revision: 2.21 $ =~ /\d+/g); sprintf "%d."."%02d" x $#r, @r }; # must be all one line, for MakeMaker
 }
 
 1;
 
-sub main::getUPSShipping {
+my %fields = (
+	product => undef,
+	origin => undef,
+	dest => undef,
+	weight => undef,
+	ups_zone => undef,
+	total_shipping => undef,
+	raw => undef,
+	error => 0,
+);
 
-&Usage if ( $#_ < 3 );
-
-my ($product,$origPostal,$destPostal,$weight) = @_;
-
-use LWP::Simple;
-
-my $ups_cgi = 'http://www.ups.com/using/services/rave/qcostcgi.cgi';
-my $workString = "?";
-$workString .= "accept_UPS_license_agreement=yes&";
-$workString .= "10_action=3&";
-$workString .= "13_product=$product&";
-$workString .= "15_origPostal=$origPostal&";
-$workString .= "19_destPostal=$destPostal&";
-$workString .= "23_weight=$weight&";
-$workString = "${ups_cgi}${workString}";
-
-return split( '%', get($workString) );
-
+sub new {
+	my $that = shift;
+	my $class = ref($that) || $that;
+	my $self = {
+		_permitted => \%fields,
+		%fields,
+	};
+	bless $self, $class;
+	# print "\n\nNumber: $#_\n@_\n";
+	if ( $#_ == 3 ) {
+		$self->product(shift) || $self->product(undef);
+		$self->origin(shift) || $self->origin(undef);
+		$self->dest(shift) || $self->dest(undef);
+		$self->weight(shift) || $self->weight(undef);
+	}
+	else {
+		croak "Wrong contstructor options";
+	}
+	return $self;
 }
 
-sub Usage {
-	print STDERR "UPS: Input must be in the following format:\n";
-	print STDERR "\tProduct (Shipping) Code, Origin Zip, Dest Zip, Weight (lbs)\n";
-	exit(1);
+sub AUTOLOAD {
+	my $self = shift;
+	my $type = ref($self) || croak "$self is not an abject";
+	my $name = $AUTOLOAD;
+	$name =~ s/.*://;	# Strip fully-qualified portion
+	unless (exists $self->{_permitted}->{$name} ) {
+		croak "Can't access '$name' field in object of class $type";
+	}
+	if (@_) {
+		return $self->{$name} = shift;
+	} else {
+		return $self->{$name};
+	}
+}
+
+sub getUPSShipping {
+	my $self = shift;
+	my $type = ref($self) || croak "$self is not an abject";
+
+	my $ups_cgi = 'http://www.ups.com/using/services/rave/qcostcgi.cgi';
+	my $workString = "?";
+	$workString .= "accept_UPS_license_agreement=yes&";
+	$workString .= "10_action=3&";
+	$workString .= "13_product=".$self->product."&";
+	$workString .= "15_origPostal=".$self->origin."&";
+	$workString .= "19_destPostal=".$self->dest."&";
+	$workString .= "23_weight=".$self->weight."&";
+	$workString = "${ups_cgi}${workString}";
+
+	my @ret = ();
+	my @ret = split( '%', get($workString) );
+	$self->raw(\@ret);
+	if (! $ret[5]) {
+		$self->error($ret[1]);
+		return 0;
+	}
+	else {
+		$self->total_shipping($ret[10]);
+		$self->ups_zone($ret[6]);
+		return 1;
+	}
 }
 
 END {}
@@ -57,15 +105,11 @@ __END__
 
     use Business::UPSShipping;
 
-    my $shipping_code = 'GNDCOM';	# Ground Commericial
-    my $origin_zip = '23000';
-    my $dest_zip = '24000';
-    my $weight = '10';			# In pounds
+    $ship = new Business::UPSShipping (qw/GNDCOM 23606 23607 50/);
+    $ship->getUPSShipping || die "ERROR:\n" . $ship->error,"\n";
 
-    my @shipping_data = 
-        getUPSShipping($shipping_code,$origin_zip,$dest_zip,$weight);
-    my $shipping_cost = $shipping_data[10];
-    my $ups_zone = $shipping_data[6];
+    print "Shipping is \$" . $ship->total_shipping . "\n";
+    print "UPS Zone is \$" . $ship->ups_zone . "\n";
 
 =head1 DESCRIPTION
 
@@ -86,9 +130,20 @@ Perl 5.003 or higher
 
 LWP Module
 
-=back
+=item *
+
+Carp Module
+
+=back 4
 
 =head1 ARGUMENTS
+
+	Construct the shipping object
+	Construct the UPSShipping object with the following values in order:
+		1. Product code
+		2. Origin Zip Code
+		3. Destination Zip Code
+		4. Weight of Package
 
 =item 1.
 
@@ -141,7 +196,7 @@ LWP Module
 
 =head1 RETURN VALUES
 
-	This function returns a list (@LIST) with the following values:
+	The raw http get() returns a list with the following values:
 
 	  ##  Desc		Typical Value
 	  --  ---------------   -------------
@@ -158,6 +213,8 @@ LWP Module
 	  10. Total Cost:	7.75
 	  11. ???:		-1
 
+	If anyone wants these available for some reason, let me know.
+
 =head1 EXAMPLES
 
 	To retreive the shipping of a 'Ground Commercial' Package 
@@ -165,23 +222,38 @@ LWP Module
 	be called like this:
 
 	  #!/usr/local/bin/perl
-	  use Business::UPSShipping;
-	  my $shipping = (getUPSShipping('GNDCOM','23001','23002','25'))[10];
-  
-	Here's nother example:
 
-	  #!/usr/local/bin/perl
 	  use Business::UPSShipping;
-	  my @shipping = getUPSShipping('GNDCOM',23606,23607,50);
-	  print "Shipping is \$$shipping[10]\n";
-	  print "UPS Zone is \$$shipping[6]\n";
 
-	Because it might be usefull to get the UPS zone, etc, for
-	confirmation, I have the subroutine returning a list.
+	  my $ship = new Business::UPSShipping (qw/GNDCOM 23001 23002 25/);
+	  my $ship->getUPSShipping || die $ship->error;
+
+	  print "Shipping using Ground Commercial is \$" . $ship->total_shipping . "\n";  
+	  print "UPS Zone is " . $ship->ups_zone . "\n";  
+
+	If you have to recompute the shipping later, simply redifine the
+	changed value and get the new shipping. 
+	The values to change are:
+		product		ex.	$ship->product('GNDCOM');
+		origin		ex.	$ship->origin('12345');
+		dest		ex.	$ship->dest('12345');
+		weight		ex.	$ship->weight('50');
+	For example, since the above
+	example figured for 'Ground Commercial' (GNDCOM) to refigure for
+	'2nd Day Air' (2DA):
+
+	  $ship->product('2DA');
+	  my $ship->getUPSShipping || die $ship->error;
+
+	  print "Shipping using 2nd Day Air is \$" . $ship->total_shipping . "\n";  
+	  print "UPS Zone is " . $ship->ups_zone . "\n";  
+
 
 =head1 AUTHOR
 
 	Mark Solomon <msolomon@seva.net>
+	mailto:msolomon@seva.net
+	http://www.seva.net/~msolomon/
 
 	NOTE: UPS is a registered trademark of United Parcel Service.
 
